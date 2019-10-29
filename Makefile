@@ -7,19 +7,19 @@ VERSION ?= v$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_BUILD)-$(VERSION_TSTAMP)
 
 GOOS ?= $(shell go env GOOS)
 
-ORG := github.com
-OWNER := xenolog
-REPOPATH ?= $(ORG)/$(OWNER)/ipam
+OWNER ?= xenolog
+MODPATH ?= $(shell head -n1 go.mod | grep module | awk '{print $$2}')
+BINNAME ?= inwinstack-ipam
 
 $(shell mkdir -p ./out)
 
 .PHONY: build
-build: out/controller
+build: out/$(BINNAME)
 
-.PHONY: out/controller
-out/controller:
+.PHONY: out/$(BINNAME)
+out/$(BINNAME):
 	GOOS=$(GOOS) go build \
-	  -ldflags="-s -w -X $(REPOPATH)/pkg/version.version=$(VERSION)" \
+	  -ldflags="-s -w -X $(MODPATH)/pkg/version.version=$(VERSION)" \
 	  -a -o $@ cmd/main.go
 
 .PHONY: test
@@ -28,11 +28,11 @@ test:
 
 .PHONY: build_image
 build_image:
-	docker build -t $(OWNER)/ipam:$(VERSION) .
+	docker build -t $(OWNER)/inwinstack-ipam:$(VERSION) .
 
 .PHONY: push_image
 push_image:
-	docker push $(OWNER)/ipam:$(VERSION)
+	docker push $(OWNER)/inwinstack-ipam:$(VERSION)
 
 .PHONY: clean
 clean:
