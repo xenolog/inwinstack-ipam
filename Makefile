@@ -32,7 +32,7 @@ build: out/$(BINNAME)
 out/$(BINNAME):
 	GO111MODULE=$(GO111MODULE) go build \
 	  -ldflags="-s -w -X $(MODPATH)/pkg/version.version=$(VERSION)" \
-	  -a -o $@ cmd/manager/main.go
+	  -a -o $@ cmd/main.go
 
 .PHONY: cicd-build-binary
 cicd-build-binary: build
