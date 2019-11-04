@@ -19,6 +19,7 @@ package ip
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/thoas/go-funk"
@@ -162,9 +163,17 @@ func (c *Controller) reconcile(key string) error {
 		return err
 	}
 
-	need := k8sutil.IsNeedToUpdate(ip.ObjectMeta)
-	if ip.Status.Phase != blendedv1.IPActive || need {
+	if ip.Status.Phase != blendedv1.IPActive || k8sutil.IsNeedToUpdate(ip.ObjectMeta) {
+		glog.V(4).Infof("Allocate address for '%s'", ip.Name)
 		if err := c.allocate(ip); err != nil {
+			return err
+		}
+	} else if c.macLabelIsNeedToUpdate(ip) {
+		glog.V(4).Infof("Update labels for '%s'", ip.Name)
+		ipCopy := ip.DeepCopy()
+		c.updateMacLabelIfNeed(ipCopy)
+		ipCopy.Status.LastUpdateTime = metav1.Now()
+		if _, err := c.blendedset.InwinstackV1().IPs(ipCopy.Namespace).Update(ipCopy); err != nil {
 			return err
 		}
 	}
@@ -246,6 +255,8 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 				allocatedIP = ips[0]
 			}
 
+			c.updateMacLabelIfNeed(ipCopy)
+
 			pool.Status.AllocatedIPs = append(pool.Status.AllocatedIPs, allocatedIP)
 			pool.Status.Allocatable = pool.Status.Capacity - len(pool.Status.AllocatedIPs)
 
@@ -270,6 +281,32 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 		return err
 	}
 	return nil
+}
+
+func (c *Controller) macLabelIsNeedToUpdate(ip *blendedv1.IP) (rv bool) {
+	newMAC := strings.ToUpper(ip.Spec.MAC)
+	// glog.V(4).Infof("Comparing MAC for '%s' is '%s' -> '%s'", ip.Name, ip.Status.MAC, newMAC)
+	return newMAC != ip.Status.MAC
+}
+
+func (c *Controller) updateMacLabelIfNeed(ip *blendedv1.IP) {
+	if c.macLabelIsNeedToUpdate(ip) {
+		// Label for MAC address requested:
+		macLabelKey := "ipam/MAC"
+		mac := strings.ToUpper(ip.Spec.MAC)
+		if ip.Labels == nil {
+			ip.Labels = map[string]string{}
+		}
+		if mac != "" {
+			ip.Labels[macLabelKey] = strings.ReplaceAll(mac, ":", "-")
+		} else {
+			delete(ip.Labels, macLabelKey)
+		}
+		ip.Status.MAC = mac
+
+		glog.V(4).Infof("MAC and label for '%s' changed to '%s'", ip.Name, mac)
+
+	}
 }
 
 func (c *Controller) deallocate(ip *blendedv1.IP) error {
