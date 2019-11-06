@@ -19,6 +19,7 @@ package ip
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	informerv1 "github.com/inwinstack/blended/generated/informers/externalversions/inwinstack/v1"
 	listerv1 "github.com/inwinstack/blended/generated/listers/inwinstack/v1"
 	"github.com/inwinstack/blended/k8sutil"
+	"github.com/inwinstack/ipam/pkg/config"
 	"github.com/inwinstack/ipam/pkg/ipaddr"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -168,15 +170,8 @@ func (c *Controller) reconcile(key string) error {
 		if err := c.allocate(ip); err != nil {
 			return err
 		}
-	} else if c.macLabelIsNeedToUpdate(ip) {
-		glog.V(4).Infof("Update labels for '%s'", ip.Name)
-		ipCopy := ip.DeepCopy()
-		c.updateMacLabelIfNeed(ipCopy)
-		ipCopy.Status.LastUpdateTime = metav1.Now()
-		if _, err := c.blendedset.InwinstackV1().IPs(ipCopy.Namespace).Update(ipCopy); err != nil {
-			return err
-		}
 	}
+
 	return nil
 }
 
@@ -216,6 +211,39 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 	var allocatedIP string
 
 	ipCopy := ip.DeepCopy()
+
+	if ipCopy.Labels == nil {
+		ipCopy.Labels = map[string]string{}
+	}
+
+	if strings.ToUpper(ip.Spec.MAC) != ip.Status.MAC {
+		// Setup or change Label and Status for MAC address
+		mac := strings.ToUpper(ip.Spec.MAC)
+		if mac != "" {
+			ipCopy.Labels[config.MacLabel] = strings.ReplaceAll(mac, ":", "-")
+		} else {
+			delete(ipCopy.Labels, config.MacLabel)
+		}
+		ipCopy.Status.MAC = mac
+		glog.V(4).Infof("MAC label for '%s' changed to '%s'", ip.Name, mac)
+	}
+
+	if ipCopy.Labels[config.IPlabel] != ip.Status.Address {
+		// Setup or change Label for IP address
+		if ip.Status.Address != "" {
+			ipCopy.Labels[config.IPlabel] = ip.Status.Address
+		} else {
+			delete(ipCopy.Labels, config.IPlabel)
+		}
+		glog.V(4).Infof("IP label for '%s' changed to '%s'", ip.Name, ip.Status.Address)
+	}
+
+	if ipCopy.Labels[config.PoolLabel] != ip.Spec.PoolName {
+		// Setup or change Label for Pool
+		ipCopy.Labels[config.PoolLabel] = ip.Spec.PoolName
+		glog.V(4).Infof("Pool label for '%s' changed to '%s'", ip.Name, ip.Spec.PoolName)
+	}
+
 	pool, err := c.blendedset.InwinstackV1().Pools().Get(ipCopy.Spec.PoolName, metav1.GetOptions{})
 	if err != nil {
 		return err
@@ -255,21 +283,24 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 				allocatedIP = ips[0]
 			}
 
-			c.updateMacLabelIfNeed(ipCopy)
-
 			pool.Status.AllocatedIPs = append(pool.Status.AllocatedIPs, allocatedIP)
 			pool.Status.Allocatable = pool.Status.Capacity - len(pool.Status.AllocatedIPs)
-
+			ipCopy.Status.Reason = ""
+			ipCopy.Status.Address = allocatedIP
 			if err := c.updatePool(pool); err != nil {
 				// If the pool failed to update, this res will requeue
 				return err
 			}
 
-			ipCopy.Status.Reason = ""
-			ipCopy.Status.Address = allocatedIP
 			ipCopy.Status.Phase = blendedv1.IPActive
 			k8sutil.AddFinalizer(&ipCopy.ObjectMeta, constants.CustomFinalizer)
 		}
+
+		_, cidrNet, _ := net.ParseCIDR(pool.Status.CIDR)
+		cidrNetSize, _ := cidrNet.Mask.Size()
+		ipCopy.Status.CIDR = fmt.Sprintf("%s/%d", ipCopy.Status.Address, cidrNetSize)
+		ipCopy.Status.Gateway = pool.Status.Gateway
+
 	case blendedv1.PoolTerminating:
 		ipCopy.Status.Reason = fmt.Sprintf("The \"%s\" pool has been terminated.", pool.Name)
 		ipCopy.Status.Phase = blendedv1.IPFailed
@@ -281,32 +312,6 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 		return err
 	}
 	return nil
-}
-
-func (c *Controller) macLabelIsNeedToUpdate(ip *blendedv1.IP) (rv bool) {
-	newMAC := strings.ToUpper(ip.Spec.MAC)
-	// glog.V(4).Infof("Comparing MAC for '%s' is '%s' -> '%s'", ip.Name, ip.Status.MAC, newMAC)
-	return newMAC != ip.Status.MAC
-}
-
-func (c *Controller) updateMacLabelIfNeed(ip *blendedv1.IP) {
-	if c.macLabelIsNeedToUpdate(ip) {
-		// Label for MAC address requested:
-		macLabelKey := "ipam/MAC"
-		mac := strings.ToUpper(ip.Spec.MAC)
-		if ip.Labels == nil {
-			ip.Labels = map[string]string{}
-		}
-		if mac != "" {
-			ip.Labels[macLabelKey] = strings.ReplaceAll(mac, ":", "-")
-		} else {
-			delete(ip.Labels, macLabelKey)
-		}
-		ip.Status.MAC = mac
-
-		glog.V(4).Infof("MAC and label for '%s' changed to '%s'", ip.Name, mac)
-
-	}
 }
 
 func (c *Controller) deallocate(ip *blendedv1.IP) error {

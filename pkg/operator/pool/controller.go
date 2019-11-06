@@ -19,6 +19,9 @@ package pool
 import (
 	"context"
 	"fmt"
+	"net"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/thoas/go-funk"
@@ -136,9 +139,11 @@ func (c *Controller) enqueue(obj interface{}) {
 }
 
 func (c *Controller) reconcile(key string) error {
+	// var poolCopy *blendedv1.Pool
+
 	_, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
-		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
+		utilruntime.HandleError(fmt.Errorf("invalid resource key: '%s'", key))
 		return err
 	}
 
@@ -165,6 +170,7 @@ func (c *Controller) reconcile(key string) error {
 			return c.makeFailedStatus(pool, err)
 		}
 	}
+
 	return nil
 }
 
@@ -172,6 +178,7 @@ func (c *Controller) checkAndUdateFinalizer(pool *blendedv1.Pool) error {
 	poolCopy := pool.DeepCopy()
 	ok := funk.ContainsString(poolCopy.Finalizers, constants.CustomFinalizer)
 	if poolCopy.Status.Phase == blendedv1.PoolActive && !ok {
+		glog.V(4).Infof("UdateFinalizer for Pool '%s'", poolCopy.Name)
 		k8sutil.AddFinalizer(&poolCopy.ObjectMeta, constants.CustomFinalizer)
 		if _, err := c.blendedset.InwinstackV1().Pools().Update(poolCopy); err != nil {
 			return err
@@ -181,6 +188,7 @@ func (c *Controller) checkAndUdateFinalizer(pool *blendedv1.Pool) error {
 }
 
 func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
+	glog.V(4).Infof("makeStatus for Pool '%s'", pool.Name)
 	poolCopy := pool.DeepCopy()
 	if poolCopy.Status.AllocatedIPs == nil {
 		poolCopy.Status.AllocatedIPs = []string{}
@@ -195,6 +203,54 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 	poolCopy.Status.Reason = ""
 	poolCopy.Status.Capacity = len(ips)
 	poolCopy.Status.Allocatable = len(ips) - len(poolCopy.Status.AllocatedIPs)
+
+	if pool.Spec.CIDR != pool.Status.CIDR {
+		// CIDR updated
+		glog.V(4).Infof("Modifying Status.CIDR for Pool '%s'", pool.Name)
+		cidr := strings.TrimSpace(pool.Spec.CIDR)
+		ipA, ipN, err := net.ParseCIDR(cidr)
+		ipAddr := fmt.Sprintf("%s", ipA)
+		netAddr := fmt.Sprintf("%s", ipN.IP)
+		if err != nil || ipAddr != netAddr {
+			return c.makeFailedStatus(
+				pool,
+				fmt.Errorf("Wrong CIDR '%s' for pool '%s': %w", cidr, pool.Name, err),
+			)
+		}
+		poolCopy.Status.CIDR = cidr
+
+		//todo(sv): Check whether poolGateway into CIDR
+		//todo(sv): Check whether All Addresses ranges into CIDR
+	}
+
+	if pool.Spec.Gateway != pool.Status.Gateway {
+		glog.V(4).Infof("Modifying Status.Gateway for Pool '%s'", pool.Name)
+		gwAddrString := strings.TrimSpace(pool.Spec.Gateway)
+		gwA, gwNet, err := net.ParseCIDR(fmt.Sprintf("%s/24", gwAddrString))
+		gwAddr := fmt.Sprintf("%s", gwA)
+		if err != nil {
+			return c.makeFailedStatus(
+				poolCopy,
+				fmt.Errorf("Wrong Gateway '%s' for pool '%s': %w", gwAddrString, pool.Name, err),
+			)
+		}
+		_, poolNet, err := net.ParseCIDR(poolCopy.Status.CIDR) // only poolCopy should be used here
+		if err != nil {
+			return c.makeFailedStatus(
+				poolCopy,
+				fmt.Errorf("Wrong Status.CIDR '%s' in the pool '%s': %w", poolCopy.Status.CIDR, pool.Name, err),
+			)
+		}
+		if !reflect.DeepEqual(*gwNet, *poolNet) {
+			return c.makeFailedStatus(
+				poolCopy,
+				fmt.Errorf("Gateway '%s' not in pool '%s' CIDR '%s'", gwAddrString, pool.Name, poolCopy.Spec.CIDR),
+			)
+		}
+		poolCopy.Status.Gateway = gwAddr
+		//todo(sv): make Status.FilteredIPs from Spec.FilteredIPs and Gateway
+	}
+
 	poolCopy.Status.LastUpdateTime = metav1.NewTime(time.Now())
 	poolCopy.Status.Phase = blendedv1.PoolActive
 	delete(poolCopy.Annotations, constants.NeedUpdateKey)
@@ -220,6 +276,7 @@ func (c *Controller) makeFailedStatus(pool *blendedv1.Pool, e error) error {
 
 func (c *Controller) cleanup(pool *blendedv1.Pool) error {
 	poolCopy := pool.DeepCopy()
+	glog.V(4).Infof("Clanup Pool '%s'", poolCopy.Name)
 	poolCopy.Status.Phase = blendedv1.PoolTerminating
 	if len(poolCopy.Status.AllocatedIPs) == 0 {
 		k8sutil.RemoveFinalizer(&poolCopy.ObjectMeta, constants.CustomFinalizer)
