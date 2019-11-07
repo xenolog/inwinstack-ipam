@@ -2,5 +2,6 @@ apiVersion: inwinstack.com/v1
 kind: IP
 metadata:
   name: test-ip-1
+  mac: 52:FF:00:7b:e2:e1
 spec:
   poolName: test
