@@ -251,9 +251,16 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 
 	switch pool.Status.Phase {
 	case blendedv1.PoolActive:
+
+		// Validate POOL's CIDR and prepare for future use
+		_, cidrNet, err := net.ParseCIDR(pool.Status.CIDR)
+		if err != nil {
+			return c.makeFailedStatus(ipCopy, fmt.Errorf("The '%s' pool is inoperable, wrong CIDR: %w", pool.Name, err))
+		}
+
 		if ipCopy.Status.Address == "" {
 			if pool.Status.Allocatable == 0 {
-				return c.makeFailedStatus(ipCopy, fmt.Errorf("The \"%s\" pool has been exhausted", pool.Name))
+				return c.makeFailedStatus(ipCopy, fmt.Errorf("The '%s' pool has been exhausted", pool.Name))
 			}
 
 			parser := ipaddr.NewParser(pool.Spec.Addresses, pool.Spec.AvoidBuggyIPs, pool.Spec.AvoidGatewayIPs)
@@ -296,7 +303,7 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 			k8sutil.AddFinalizer(&ipCopy.ObjectMeta, constants.CustomFinalizer)
 		}
 
-		_, cidrNet, _ := net.ParseCIDR(pool.Status.CIDR)
+		// Add CIDR notation, using Pool's CIDR
 		cidrNetSize, _ := cidrNet.Mask.Size()
 		ipCopy.Status.CIDR = fmt.Sprintf("%s/%d", ipCopy.Status.Address, cidrNetSize)
 		ipCopy.Status.Gateway = pool.Status.Gateway
