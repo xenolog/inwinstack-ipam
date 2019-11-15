@@ -228,16 +228,6 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 		glog.V(4).Infof("MAC label for '%s' changed to '%s'", ip.Name, mac)
 	}
 
-	if ipCopy.Labels[config.IPlabel] != ip.Status.Address {
-		// Setup or change Label for IP address
-		if ip.Status.Address != "" {
-			ipCopy.Labels[config.IPlabel] = ip.Status.Address
-		} else {
-			delete(ipCopy.Labels, config.IPlabel)
-		}
-		glog.V(4).Infof("IP label for '%s' changed to '%s'", ip.Name, ip.Status.Address)
-	}
-
 	if ipCopy.Labels[config.PoolLabel] != ip.Spec.PoolName {
 		// Setup or change Label for Pool
 		ipCopy.Labels[config.PoolLabel] = ip.Spec.PoolName
@@ -309,8 +299,18 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 		ipCopy.Status.Gateway = pool.Status.Gateway
 
 	case blendedv1.PoolTerminating:
-		ipCopy.Status.Reason = fmt.Sprintf("The \"%s\" pool has been terminated.", pool.Name)
+		ipCopy.Status.Reason = fmt.Sprintf("The '%s' pool has been terminated.", pool.Name)
 		ipCopy.Status.Phase = blendedv1.IPFailed
+	}
+
+	if ipCopy.Labels[config.IPlabel] != ipCopy.Status.Address {
+		// Setup or change Label for IP address
+		if ipCopy.Status.Address != "" {
+			ipCopy.Labels[config.IPlabel] = ipCopy.Status.Address
+		} else {
+			delete(ipCopy.Labels, config.IPlabel)
+		}
+		glog.V(4).Infof("IP label for '%s' changed to '%s'", ip.Name, ipCopy.Status.Address)
 	}
 
 	delete(ipCopy.Annotations, constants.NeedUpdateKey)
