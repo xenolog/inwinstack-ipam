@@ -1,6 +1,6 @@
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-gerrit.mcp.mirantis.com/kaas-bm/inwinstack-blended v0.0.0-20191107181655-23288ab24b98 h1:RJws7iisq1Pul6WNkgMv7XiYQqCJ3ydkBwFkKU3nvVY=
-gerrit.mcp.mirantis.com/kaas-bm/inwinstack-blended v0.0.0-20191107181655-23288ab24b98/go.mod h1:tyTgnHheUc/u3s+dWDzMcA9mkIfldHBvFajEKN8nbjk=
+gerrit.mcp.mirantis.com/kaas-bm/inwinstack-blended v0.0.0-20191126113310-9ac58dc3c6e1 h1:ijOWdYzZQ5aHH+zWZ1l62XSdTazG06LqEtfOxo/7Vbc=
+gerrit.mcp.mirantis.com/kaas-bm/inwinstack-blended v0.0.0-20191126113310-9ac58dc3c6e1/go.mod h1:tyTgnHheUc/u3s+dWDzMcA9mkIfldHBvFajEKN8nbjk=
 github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78/go.mod h1:LmzpDX56iTiv29bbRTIsUNlaFfuhWRQBWjQdVyAevI8=
 github.com/Azure/go-autorest v11.1.2+incompatible/go.mod h1:r+4oMnoxhatjLLJ6zxSWATqVooLgysK6ZNox3g/xq24=
 github.com/BurntSushi/toml v0.3.0/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=

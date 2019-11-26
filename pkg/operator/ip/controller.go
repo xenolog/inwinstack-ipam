@@ -297,6 +297,7 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 		cidrNetSize, _ := cidrNet.Mask.Size()
 		ipCopy.Status.CIDR = fmt.Sprintf("%s/%d", ipCopy.Status.Address, cidrNetSize)
 		ipCopy.Status.Gateway = pool.Status.Gateway
+		ipCopy.Status.Nameservers = pool.Status.Nameservers
 
 	case blendedv1.PoolTerminating:
 		ipCopy.Status.Reason = fmt.Sprintf("The '%s' pool has been terminated.", pool.Name)

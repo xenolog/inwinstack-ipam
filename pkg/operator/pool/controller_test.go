@@ -46,6 +46,7 @@ func TestPoolController(t *testing.T) {
 			Name: "test-pool",
 		},
 		Spec: blendedv1.PoolSpec{
+			CIDR:              "172.22.132.0/24",
 			Addresses:         []string{"172.22.132.0-172.22.132.5"},
 			AssignToNamespace: false,
 			AvoidBuggyIPs:     true,

@@ -47,12 +47,14 @@ func TestIPController(t *testing.T) {
 			Name: "test",
 		},
 		Spec: blendedv1.PoolSpec{
+			CIDR:              "172.22.132.0/24",
 			Addresses:         []string{"172.22.132.0-172.22.132.5"},
 			AssignToNamespace: false,
 			AvoidBuggyIPs:     true,
 			AvoidGatewayIPs:   false,
 		},
 		Status: blendedv1.PoolStatus{
+			CIDR:           "172.22.132.0/24",
 			Phase:          blendedv1.PoolActive,
 			AllocatedIPs:   []string{},
 			Capacity:       5,
@@ -123,12 +125,14 @@ func TestIPControllerAllocateSpecifidIP(t *testing.T) {
 			Name: "test2",
 		},
 		Spec: blendedv1.PoolSpec{
+			CIDR:              "172.22.132.0/24",
 			Addresses:         []string{"172.22.132.8-172.22.132.15"},
 			AssignToNamespace: false,
 			AvoidBuggyIPs:     true,
 			AvoidGatewayIPs:   false,
 		},
 		Status: blendedv1.PoolStatus{
+			CIDR:           "172.22.132.0/24",
 			Phase:          blendedv1.PoolActive,
 			AllocatedIPs:   []string{},
 			Capacity:       8,

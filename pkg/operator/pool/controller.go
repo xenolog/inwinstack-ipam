@@ -164,7 +164,13 @@ func (c *Controller) reconcile(key string) error {
 		return err
 	}
 
-	need := k8sutil.IsNeedToUpdate(pool.ObjectMeta)
+	need := false
+	if k8sutil.IsNeedToUpdate(pool.ObjectMeta) ||
+		pool.Spec.Gateway != pool.Status.Gateway ||
+		pool.Spec.CIDR != pool.Status.CIDR || pool.Status.CIDR == "" ||
+		!reflect.DeepEqual(pool.Spec.Nameservers, pool.Status.Nameservers) {
+		need = true
+	}
 	if pool.Status.Phase != blendedv1.PoolActive || need {
 		if err := c.makeStatus(pool); err != nil {
 			return c.makeFailedStatus(pool, err)
@@ -204,14 +210,13 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 	poolCopy.Status.Capacity = len(ips)
 	poolCopy.Status.Allocatable = len(ips) - len(poolCopy.Status.AllocatedIPs)
 
-	if pool.Spec.CIDR != pool.Status.CIDR {
+	if pool.Spec.CIDR != pool.Status.CIDR || pool.Status.CIDR == "" {
 		// CIDR updated
 		glog.V(4).Infof("Modifying Status.CIDR for Pool '%s'", pool.Name)
 		cidr := strings.TrimSpace(pool.Spec.CIDR)
 		ipA, ipN, err := net.ParseCIDR(cidr)
 		ipAddr := fmt.Sprintf("%s", ipA)
-		netAddr := fmt.Sprintf("%s", ipN.IP)
-		if err != nil || ipAddr != netAddr {
+		if err != nil || ipAddr != fmt.Sprintf("%s", ipN.IP) {
 			return c.makeFailedStatus(
 				pool,
 				fmt.Errorf("Wrong CIDR '%s' for pool '%s': %w", cidr, pool.Name, err),
@@ -249,6 +254,24 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 		}
 		poolCopy.Status.Gateway = gwAddr
 		//todo(sv): make Status.FilteredIPs from Spec.FilteredIPs and Gateway
+	}
+
+	if !reflect.DeepEqual(pool.Spec.Nameservers, pool.Status.Nameservers) {
+		glog.V(4).Infof("Modifying Status.Nameservers for Pool '%s'", pool.Name)
+		// validate nameservers IP addrsses
+		poolCopy.Status.Nameservers = []string{}
+		for _, ip := range pool.Spec.Nameservers {
+			nsA, _, err := net.ParseCIDR(fmt.Sprintf("%s/32", ip))
+			nsAddr := fmt.Sprintf("%s", nsA)
+			if err != nil {
+				return c.makeFailedStatus(
+					poolCopy,
+					fmt.Errorf("Wrong nameservr address '%s' for pool '%s': %w", ip, pool.Name, err),
+				)
+			}
+			poolCopy.Status.Nameservers = append(poolCopy.Status.Nameservers, nsAddr)
+		}
+		// DO NOT SORT IT !!! order may be very important !!!
 	}
 
 	poolCopy.Status.LastUpdateTime = metav1.NewTime(time.Now())
