@@ -187,30 +187,24 @@ func (c *Controller) checkAndUdateFinalizer(ip *blendedv1.IP) error {
 	return nil
 }
 
-func (c *Controller) updatePool(pool *blendedv1.Pool) error {
-	pool.Status.LastUpdateTime = metav1.Now()
-	if _, err := c.blendedset.InwinstackV1().Pools().Update(pool); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (c *Controller) makeFailedStatus(ip *blendedv1.IP, e error) error {
 	ip.Status.Address = ""
 	ip.Status.Phase = blendedv1.IPFailed
 	ip.Status.Reason = fmt.Sprintf("%+v.", e)
 	ip.Status.LastUpdateTime = metav1.Now()
 	delete(ip.Annotations, constants.NeedUpdateKey)
-	if _, err := c.blendedset.InwinstackV1().IPs(ip.Namespace).Update(ip); err != nil {
+	if _, err := c.blendedset.InwinstackV1().IPs(ip.Namespace).UpdateStatus(ip); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *Controller) allocate(ip *blendedv1.IP) error {
+func (c *Controller) allocate(ip *blendedv1.IP) (rv error) {
 	var allocatedIP string
 
 	ipCopy := ip.DeepCopy()
+	updateIP := false
+	updateIPstatus := false
 
 	if ipCopy.Labels == nil {
 		ipCopy.Labels = map[string]string{}
@@ -226,18 +220,21 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 		}
 		ipCopy.Status.MAC = mac
 		glog.V(4).Infof("MAC label for '%s' changed to '%s'", ip.Name, mac)
+		updateIP = true
 	}
 
 	if ipCopy.Labels[config.PoolLabel] != ip.Spec.PoolName {
 		// Setup or change Label for Pool
 		ipCopy.Labels[config.PoolLabel] = ip.Spec.PoolName
 		glog.V(4).Infof("Pool label for '%s' changed to '%s'", ip.Name, ip.Spec.PoolName)
+		updateIP = true
 	}
 
 	pool, err := c.blendedset.InwinstackV1().Pools().Get(ipCopy.Spec.PoolName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
+	poolCopy := pool.DeepCopy()
 
 	switch pool.Status.Phase {
 	case blendedv1.PoolActive:
@@ -280,11 +277,12 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 				allocatedIP = ips[0]
 			}
 
-			pool.Status.AllocatedIPs = append(pool.Status.AllocatedIPs, allocatedIP)
-			pool.Status.Allocatable = pool.Status.Capacity - len(pool.Status.AllocatedIPs)
+			poolCopy.Status.AllocatedIPs = append(poolCopy.Status.AllocatedIPs, allocatedIP)
+			poolCopy.Status.Allocatable = poolCopy.Status.Capacity - len(poolCopy.Status.AllocatedIPs)
 			ipCopy.Status.Reason = ""
 			ipCopy.Status.Address = allocatedIP
-			if err := c.updatePool(pool); err != nil {
+			updateIPstatus = true
+			if err := c.updatePoolStatus(poolCopy); err != nil {
 				// If the pool failed to update, this res will requeue
 				return err
 			}
@@ -298,10 +296,12 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 		ipCopy.Status.CIDR = fmt.Sprintf("%s/%d", ipCopy.Status.Address, cidrNetSize)
 		ipCopy.Status.Gateway = pool.Status.Gateway
 		ipCopy.Status.Nameservers = pool.Status.Nameservers
+		updateIPstatus = true
 
 	case blendedv1.PoolTerminating:
 		ipCopy.Status.Reason = fmt.Sprintf("The '%s' pool has been terminated.", pool.Name)
 		ipCopy.Status.Phase = blendedv1.IPFailed
+		updateIPstatus = true
 	}
 
 	if ipCopy.Labels[config.IPlabel] != ipCopy.Status.Address {
@@ -312,14 +312,21 @@ func (c *Controller) allocate(ip *blendedv1.IP) error {
 			delete(ipCopy.Labels, config.IPlabel)
 		}
 		glog.V(4).Infof("IP label for '%s' changed to '%s'", ip.Name, ipCopy.Status.Address)
+		updateIP = true
 	}
 
-	delete(ipCopy.Annotations, constants.NeedUpdateKey)
-	ipCopy.Status.LastUpdateTime = metav1.Now()
-	if _, err := c.blendedset.InwinstackV1().IPs(ipCopy.Namespace).Update(ipCopy); err != nil {
-		return err
+	if _, ok := ipCopy.Annotations[constants.NeedUpdateKey]; ok {
+		delete(ipCopy.Annotations, constants.NeedUpdateKey)
+		updateIP = true
 	}
-	return nil
+
+	if updateIP {
+		rv = c.updateIP(ipCopy)
+	} else if updateIPstatus {
+		rv = c.updateIPStatus(ipCopy)
+	}
+
+	return rv
 }
 
 func (c *Controller) deallocate(ip *blendedv1.IP) error {
@@ -329,11 +336,12 @@ func (c *Controller) deallocate(ip *blendedv1.IP) error {
 		return err
 	}
 
-	pool.Status.AllocatedIPs = funk.FilterString(pool.Status.AllocatedIPs, func(v string) bool {
+	poolCopy := pool.DeepCopy()
+	poolCopy.Status.AllocatedIPs = funk.FilterString(poolCopy.Status.AllocatedIPs, func(v string) bool {
 		return v != ip.Status.Address
 	})
-	pool.Status.Allocatable = pool.Status.Capacity - len(pool.Status.AllocatedIPs)
-	if err := c.updatePool(pool); err != nil {
+	poolCopy.Status.Allocatable = poolCopy.Status.Capacity - len(poolCopy.Status.AllocatedIPs)
+	if err := c.updatePoolStatus(poolCopy); err != nil {
 		return err
 	}
 
@@ -341,8 +349,51 @@ func (c *Controller) deallocate(ip *blendedv1.IP) error {
 	ipCopy.Status.Phase = blendedv1.IPTerminating
 	delete(ip.Annotations, constants.NeedUpdateKey)
 	k8sutil.RemoveFinalizer(&ipCopy.ObjectMeta, constants.CustomFinalizer)
-	if _, err := c.blendedset.InwinstackV1().IPs(ipCopy.Namespace).Update(ipCopy); err != nil {
+	if _, err := c.blendedset.InwinstackV1().IPs(ipCopy.Namespace).UpdateStatus(ipCopy); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
+	pool.Status.LastUpdateTime = metav1.Now()
+	if _, err := c.blendedset.InwinstackV1().Pools().UpdateStatus(pool); err != nil {
+		glog.V(4).Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
+		return err
+	}
+	return nil
+}
+
+func (c *Controller) updatePool(pool *blendedv1.Pool) (err error) {
+	var newPool *blendedv1.Pool
+	poolStatus := pool.Status.DeepCopy()
+	// poolCopy := pool.DeepCopy()
+	if newPool, err = c.blendedset.InwinstackV1().Pools().Update(pool); err != nil {
+		glog.V(4).Infof("error while update pool '%s': %+v.", pool.Name, err)
+	} else {
+		newPool.Status = *poolStatus
+		err = c.updatePoolStatus(newPool)
+	}
+	return err
+}
+
+func (c *Controller) updateIPStatus(ip *blendedv1.IP) error {
+	ip.Status.LastUpdateTime = metav1.Now()
+	if _, err := c.blendedset.InwinstackV1().IPs(ip.Namespace).UpdateStatus(ip); err != nil {
+		glog.V(4).Infof("error while update IPStatus '%s': %+v.", ip.Name, err)
+		return err
+	}
+	return nil
+}
+
+func (c *Controller) updateIP(ip *blendedv1.IP) (err error) {
+	var newIP *blendedv1.IP
+	IPStatus := ip.Status.DeepCopy()
+	if newIP, err = c.blendedset.InwinstackV1().IPs(ip.Namespace).Update(ip); err != nil {
+		glog.V(4).Infof("error while update IP '%s': %+v.", ip.Name, err)
+	} else {
+		newIP.Status = *IPStatus
+		err = c.updateIPStatus(newIP)
+	}
+	return err
 }

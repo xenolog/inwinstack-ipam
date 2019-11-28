@@ -9,6 +9,8 @@ spec:
     kind: Pool
     plural: pools
   scope: Cluster
+  subresources:
+    status: {}
   additionalPrinterColumns:
   - name: Allocatable
     type: integer
@@ -34,6 +36,8 @@ spec:
     kind: IP
     plural: ips
   scope: Namespaced
+  subresources:
+    status: {}
   additionalPrinterColumns:
   - name: Address
     type: string

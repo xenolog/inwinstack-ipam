@@ -186,7 +186,7 @@ func (c *Controller) checkAndUdateFinalizer(pool *blendedv1.Pool) error {
 	if poolCopy.Status.Phase == blendedv1.PoolActive && !ok {
 		glog.V(4).Infof("UdateFinalizer for Pool '%s'", poolCopy.Name)
 		k8sutil.AddFinalizer(&poolCopy.ObjectMeta, constants.CustomFinalizer)
-		if _, err := c.blendedset.InwinstackV1().Pools().Update(poolCopy); err != nil {
+		if err := c.updatePool(poolCopy); err != nil {
 			return err
 		}
 	}
@@ -274,23 +274,18 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 		// DO NOT SORT IT !!! order may be very important !!!
 	}
 
-	poolCopy.Status.LastUpdateTime = metav1.NewTime(time.Now())
 	poolCopy.Status.Phase = blendedv1.PoolActive
 	delete(poolCopy.Annotations, constants.NeedUpdateKey)
 	k8sutil.AddFinalizer(&poolCopy.ObjectMeta, constants.CustomFinalizer)
-	if _, err := c.blendedset.InwinstackV1().Pools().Update(poolCopy); err != nil {
-		return err
-	}
-	return nil
+	return c.updatePool(poolCopy)
 }
 
 func (c *Controller) makeFailedStatus(pool *blendedv1.Pool, e error) error {
 	poolCopy := pool.DeepCopy()
 	poolCopy.Status.Reason = e.Error()
 	poolCopy.Status.Phase = blendedv1.PoolFailed
-	poolCopy.Status.LastUpdateTime = metav1.NewTime(time.Now())
 	delete(poolCopy.Annotations, constants.NeedUpdateKey)
-	if _, err := c.blendedset.InwinstackV1().Pools().Update(poolCopy); err != nil {
+	if err := c.updatePool(poolCopy); err != nil {
 		return err
 	}
 	glog.Errorf("Pool got an error: %+v.", e)
@@ -304,9 +299,26 @@ func (c *Controller) cleanup(pool *blendedv1.Pool) error {
 	if len(poolCopy.Status.AllocatedIPs) == 0 {
 		k8sutil.RemoveFinalizer(&poolCopy.ObjectMeta, constants.CustomFinalizer)
 	}
+	return c.updatePoolStatus(poolCopy)
+}
 
-	if _, err := c.blendedset.InwinstackV1().Pools().Update(poolCopy); err != nil {
+func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
+	pool.Status.LastUpdateTime = metav1.Now()
+	if _, err := c.blendedset.InwinstackV1().Pools().UpdateStatus(pool); err != nil {
+		glog.V(4).Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
 		return err
 	}
 	return nil
+}
+
+func (c *Controller) updatePool(pool *blendedv1.Pool) (err error) {
+	var newPool *blendedv1.Pool
+	poolStatus := pool.Status.DeepCopy()
+	if newPool, err = c.blendedset.InwinstackV1().Pools().Update(pool); err != nil {
+		glog.V(4).Infof("error while update pool '%s': %+v.", pool.Name, err)
+	} else {
+		newPool.Status = *poolStatus
+		err = c.updatePoolStatus(newPool)
+	}
+	return err
 }
