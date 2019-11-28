@@ -26,6 +26,15 @@ BUILD_FLAGS ?= -ldflags="-d -s -w -X $(MODPATH)/pkg/version.version=$(VERSION)" 
 
 $(shell mkdir -p ./out)
 
+.PHONY: env-info
+env-info:
+	@echo
+	id
+	@echo
+	@env | grep -i GO
+	@echo
+	@go version
+
 .PHONY: install-tools
 install-tools:
 	apk add openssh-client git coreutils
@@ -38,7 +47,7 @@ git-config: install-tools
 build: out/$(BINNAME)
 
 .PHONY: out/$(BINNAME)
-out/$(BINNAME):
+out/$(BINNAME): env-info
 	CGO_ENABLED=0 go build $(BUILD_FLAGS) -a -o $@ cmd/main.go
 
 .PHONY: cicd-build-binary
@@ -60,13 +69,12 @@ version:
 clean:
 	rm -rf out/
 
-.PHONY: generate
-generate:
-	go generate ./...
-
 .PHONY: test
-test:
-	go version
-	gofmt -d  $(shell find . -name '*.go')
+test: env-info
+	@gofmt -d  $(shell find . -name '*.go')
 	CGO_ENABLED=0 go vet $(BUILD_FLAGS) ./...
 	CGO_ENABLED=0 go test $(BUILD_FLAGS) ./...
+
+.PHONY: generate
+generate: env-info
+	go generate ./...

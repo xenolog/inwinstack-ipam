@@ -29,9 +29,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const timeout = 3 * time.Second
+const timeout = 5 * time.Second
 
 func TestPoolController(t *testing.T) {
+	var lastUpdate metav1.Time
 	ctx, cancel := context.WithCancel(context.Background())
 	cfg := &config.Config{Threads: 2}
 	blendedset := blendedfake.NewSimpleClientset()
@@ -46,12 +47,8 @@ func TestPoolController(t *testing.T) {
 			Name: "test-pool",
 		},
 		Spec: blendedv1.PoolSpec{
-			CIDR:              "172.22.132.0/24",
-			Addresses:         []string{"172.22.132.0-172.22.132.5"},
-			AssignToNamespace: false,
-			AvoidBuggyIPs:     true,
-			AvoidGatewayIPs:   false,
-			IgnoreNamespaces:  []string{"kube-system", "kube-public", "default"},
+			CIDR: "172.22.132.0/24",
+			// UseWholeCidr:  true,
 		},
 	}
 
@@ -66,19 +63,22 @@ func TestPoolController(t *testing.T) {
 
 		if p.Status.Phase == blendedv1.PoolActive {
 			assert.Equal(t, []string{}, p.Status.AllocatedIPs)
-			assert.Equal(t, 5, p.Status.Capacity)
-			assert.Equal(t, 5, p.Status.Allocatable)
+			assert.Equal(t, []string{"172.22.132.1-172.22.132.254"}, p.Status.Ranges)
+			assert.Equal(t, 254, p.Status.Capacity)
+			assert.Equal(t, 254, p.Status.Allocatable)
 			failed = false
+			lastUpdate = p.Status.LastUpdate
 			break
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	assert.Equal(t, false, failed, "The pool object failed to make status.")
 
-	// Success to update the pool
+	// Success to update the pool by adding gateway in the middle of network
 	gpool, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
 	assert.Nil(t, err)
 
-	gpool.Spec.Addresses = append(gpool.Spec.Addresses, "172.22.132.250-172.22.132.255")
+	gpool.Spec.Gateway = "172.22.132.5"
 	_, err = blendedset.InwinstackV1().Pools().Update(gpool)
 	assert.Nil(t, err)
 
@@ -87,18 +87,149 @@ func TestPoolController(t *testing.T) {
 		p, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
 		assert.Nil(t, err)
 
-		if p.Status.Capacity == 10 {
-			assert.Equal(t, 10, p.Status.Allocatable)
+		if p.Status.LastUpdate != lastUpdate {
+			assert.Equal(t, 253, p.Status.Capacity)
+			assert.Equal(t, 253, p.Status.Allocatable)
+			assert.Equal(t, []string{
+				"172.22.132.1-172.22.132.4",
+				"172.22.132.6-172.22.132.254",
+			}, p.Status.Ranges)
 			failed = false
+			lastUpdate = p.Status.LastUpdate
 			break
 		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	assert.Equal(t, false, failed, "The service object failed to sync status.")
+	// lastUpdate := gpool.Status.LastUpdate
+
+	// Success to update the pool by UseWholeCidr
+	gpool, err = blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+	assert.Nil(t, err)
+
+	gpool.Spec.UseWholeCidr = true
+	_, err = blendedset.InwinstackV1().Pools().Update(gpool)
+	assert.Nil(t, err)
+
+	failed = true
+	for start := time.Now(); time.Since(start) < timeout; {
+		p, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+		assert.Nil(t, err)
+
+		if p.Status.LastUpdate != lastUpdate { // 256 - 1 because Gateway set
+			assert.Equal(t, 255, p.Status.Allocatable)
+			assert.Equal(t, []string{
+				"172.22.132.0-172.22.132.4",
+				"172.22.132.6-172.22.132.255",
+			}, p.Status.Ranges)
+			failed = false
+			lastUpdate = p.Status.LastUpdate
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	assert.Equal(t, false, failed, "The service object failed to sync status.")
+
+	// Success to update the pool by exclude address range
+	gpool, err = blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+	assert.Nil(t, err)
+
+	gpool.Spec.ExcludeRanges = append(gpool.Spec.ExcludeRanges, []string{
+		"172.22.132.0-172.22.132.5",
+		"172.22.132.32-172.22.132.64",
+		"172.22.132.250-172.22.132.255",
+	}...)
+	_, err = blendedset.InwinstackV1().Pools().Update(gpool)
+	assert.Nil(t, err)
+
+	failed = true
+	for start := time.Now(); time.Since(start) < timeout; {
+		p, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+		assert.Nil(t, err)
+
+		if p.Status.LastUpdate != lastUpdate {
+			assert.Equal(t, 211, p.Status.Capacity)
+			assert.Equal(t, 211, p.Status.Allocatable)
+			assert.Equal(t, []string{
+				"172.22.132.6-172.22.132.31",
+				"172.22.132.65-172.22.132.249",
+			}, p.Status.Ranges)
+			failed = false
+			lastUpdate = p.Status.LastUpdate
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	assert.Equal(t, false, failed, "The service object failed to sync status.")
+
+	// Success to update the pool, define includeRanges
+	gpool, err = blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+	assert.Nil(t, err)
+
+	gpool.Spec.IncludeRanges = append(gpool.Spec.IncludeRanges, []string{
+		"172.22.132.8-172.22.132.16",
+		"172.22.132.128-172.22.132.196",
+	}...)
+	_, err = blendedset.InwinstackV1().Pools().Update(gpool)
+	assert.Nil(t, err)
+
+	failed = true
+	for start := time.Now(); time.Since(start) < timeout; {
+		p, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+		assert.Nil(t, err)
+
+		if p.Status.LastUpdate != lastUpdate {
+			assert.Equal(t, 78, p.Status.Capacity)
+			assert.Equal(t, 78, p.Status.Allocatable)
+			assert.Equal(t, []string{
+				"172.22.132.8-172.22.132.16",
+				"172.22.132.128-172.22.132.196",
+			}, p.Status.Ranges)
+			failed = false
+			lastUpdate = p.Status.LastUpdate
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	assert.Equal(t, false, failed, "The service object failed to sync status.")
+
+	// Success to update the pool, define DNS and cut provided ranges
+	gpool, err = blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+	assert.Nil(t, err)
+
+	gpool.Spec.Nameservers = append(gpool.Spec.Nameservers, []string{
+		"172.22.132.12",
+		"172.22.132.140",
+	}...)
+	_, err = blendedset.InwinstackV1().Pools().Update(gpool)
+	assert.Nil(t, err)
+
+	failed = true
+	for start := time.Now(); time.Since(start) < timeout; {
+		p, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+		assert.Nil(t, err)
+
+		if p.Status.LastUpdate != lastUpdate {
+			assert.Equal(t, 76, p.Status.Capacity)
+			assert.Equal(t, 76, p.Status.Allocatable)
+			assert.Equal(t, []string{
+				"172.22.132.8-172.22.132.11",
+				"172.22.132.13-172.22.132.16",
+				"172.22.132.128-172.22.132.139",
+				"172.22.132.141-172.22.132.196",
+			}, p.Status.Ranges)
+			failed = false
+			lastUpdate = p.Status.LastUpdate
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	assert.Equal(t, false, failed, "The service object failed to sync status.")
 
 	// Failed to update the pool
 	gpool, err = blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
 	assert.Nil(t, err)
-	gpool.Spec.Addresses = []string{"172.22.132.250-172.22.132.267"}
+	gpool.Spec.IncludeRanges = []string{"172.22.132.250-172.22.132.267"}
 
 	_, err = blendedset.InwinstackV1().Pools().Update(gpool)
 	assert.Nil(t, err)
@@ -113,6 +244,7 @@ func TestPoolController(t *testing.T) {
 			failed = false
 			break
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	assert.Equal(t, false, failed, "The service object failed to get error status.")
 

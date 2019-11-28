@@ -35,7 +35,7 @@ import (
 	informerv1 "github.com/inwinstack/blended/generated/informers/externalversions/inwinstack/v1"
 	listerv1 "github.com/inwinstack/blended/generated/listers/inwinstack/v1"
 	"github.com/inwinstack/blended/k8sutil"
-	"github.com/inwinstack/ipam/pkg/ipaddr"
+	"github.com/inwinstack/ipam/pkg/ipallocator"
 	"k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -164,14 +164,16 @@ func (c *Controller) reconcile(key string) error {
 		return err
 	}
 
-	need := false
-	if k8sutil.IsNeedToUpdate(pool.ObjectMeta) ||
+	ranges, capacity, err := c.calculateRanges(&pool.Spec)
+	if err != nil {
+		return c.makeFailedStatus(pool, err)
+	} else if k8sutil.IsNeedToUpdate(pool.ObjectMeta) ||
 		pool.Spec.Gateway != pool.Status.Gateway ||
 		pool.Spec.CIDR != pool.Status.CIDR || pool.Status.CIDR == "" ||
-		!reflect.DeepEqual(pool.Spec.Nameservers, pool.Status.Nameservers) {
-		need = true
-	}
-	if pool.Status.Phase != blendedv1.PoolActive || need {
+		capacity != pool.Status.Capacity ||
+		!reflect.DeepEqual(pool.Spec.Nameservers, pool.Status.Nameservers) ||
+		!reflect.DeepEqual(ranges, pool.Status.Ranges) ||
+		pool.Status.Phase != blendedv1.PoolActive {
 		if err := c.makeStatus(pool); err != nil {
 			return c.makeFailedStatus(pool, err)
 		}
@@ -200,16 +202,6 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 		poolCopy.Status.AllocatedIPs = []string{}
 	}
 
-	parser := ipaddr.NewParser(poolCopy.Spec.Addresses, poolCopy.Spec.AvoidBuggyIPs, poolCopy.Spec.AvoidGatewayIPs)
-	ips, err := parser.FilterIPs(pool.Spec.FilterIPs)
-	if err != nil {
-		return err
-	}
-
-	poolCopy.Status.Reason = ""
-	poolCopy.Status.Capacity = len(ips)
-	poolCopy.Status.Allocatable = len(ips) - len(poolCopy.Status.AllocatedIPs)
-
 	if pool.Spec.CIDR != pool.Status.CIDR || pool.Status.CIDR == "" {
 		// CIDR updated
 		glog.V(4).Infof("Modifying Status.CIDR for Pool '%s'", pool.Name)
@@ -225,7 +217,6 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 		poolCopy.Status.CIDR = cidr
 
 		//todo(sv): Check whether poolGateway into CIDR
-		//todo(sv): Check whether All Addresses ranges into CIDR
 	}
 
 	if pool.Spec.Gateway != pool.Status.Gateway {
@@ -253,7 +244,6 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 			)
 		}
 		poolCopy.Status.Gateway = gwAddr
-		//todo(sv): make Status.FilteredIPs from Spec.FilteredIPs and Gateway
 	}
 
 	if !reflect.DeepEqual(pool.Spec.Nameservers, pool.Status.Nameservers) {
@@ -274,6 +264,13 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 		// DO NOT SORT IT !!! order may be very important !!!
 	}
 
+	ranges, capacity, _ := c.calculateRanges(&pool.Spec)
+
+	poolCopy.Status.Reason = ""
+	poolCopy.Status.Capacity = capacity
+	poolCopy.Status.Allocatable = capacity - len(poolCopy.Status.AllocatedIPs)
+
+	poolCopy.Status.Ranges = ranges
 	poolCopy.Status.Phase = blendedv1.PoolActive
 	delete(poolCopy.Annotations, constants.NeedUpdateKey)
 	k8sutil.AddFinalizer(&poolCopy.ObjectMeta, constants.CustomFinalizer)
@@ -303,7 +300,7 @@ func (c *Controller) cleanup(pool *blendedv1.Pool) error {
 }
 
 func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
-	pool.Status.LastUpdateTime = metav1.Now()
+	pool.Status.LastUpdate = metav1.Now()
 	if _, err := c.blendedset.InwinstackV1().Pools().UpdateStatus(pool); err != nil {
 		glog.V(4).Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
 		return err
@@ -321,4 +318,12 @@ func (c *Controller) updatePool(pool *blendedv1.Pool) (err error) {
 		err = c.updatePoolStatus(newPool)
 	}
 	return err
+}
+
+func (c *Controller) calculateRanges(spec *blendedv1.PoolSpec) ([]string, int, error) {
+	return ipallocator.CalculateRanges(
+		spec.CIDR, spec.IncludeRanges,
+		spec.UseWholeCidr,
+		spec.ExcludeRanges, []string{spec.Gateway}, spec.Nameservers,
+	)
 }

@@ -27,20 +27,20 @@ func TestIPs(t *testing.T) {
 		Parser *Parser
 		IPs    []string
 	}{
+		// {
+		// 	Parser: NewParser([]string{"172.22.132.0/30"}, true, true),
+		// 	IPs:    []string{"172.22.132.2", "172.22.132.3"},
+		// },
+		// {
+		// 	Parser: NewParser([]string{"172.22.132.0/30"}, true, false),
+		// 	IPs:    []string{"172.22.132.1", "172.22.132.2", "172.22.132.3"},
+		// },
+		// {
+		// 	Parser: NewParser([]string{"172.22.132.0/30"}, false, true),
+		// 	IPs:    []string{"172.22.132.0", "172.22.132.2", "172.22.132.3"},
+		// },
 		{
-			Parser: NewParser([]string{"172.22.132.0/30"}, true, true),
-			IPs:    []string{"172.22.132.2", "172.22.132.3"},
-		},
-		{
-			Parser: NewParser([]string{"172.22.132.0/30"}, true, false),
-			IPs:    []string{"172.22.132.1", "172.22.132.2", "172.22.132.3"},
-		},
-		{
-			Parser: NewParser([]string{"172.22.132.0/30"}, false, true),
-			IPs:    []string{"172.22.132.0", "172.22.132.2", "172.22.132.3"},
-		},
-		{
-			Parser: NewParser([]string{"172.22.132.0/30"}, false, false),
+			Parser: NewParser([]string{"172.22.132.0/30"}),
 			IPs:    []string{"172.22.132.0", "172.22.132.1", "172.22.132.2", "172.22.132.3"},
 		},
 	}
@@ -59,14 +59,14 @@ func TestFilterIPs(t *testing.T) {
 		IPs     []string
 	}{
 		{
-			Parser:  NewParser([]string{"172.22.132.0-172.22.132.5"}, true, true),
+			Parser:  NewParser([]string{"172.22.132.0-172.22.132.5"}), //  , true, true),
 			Filters: []string{"172.22.132.4", "172.22.132.5"},
-			IPs:     []string{"172.22.132.2", "172.22.132.3"},
+			IPs:     []string{"172.22.132.0", "172.22.132.1", "172.22.132.2", "172.22.132.3"},
 		},
 		{
-			Parser:  NewParser([]string{"172.22.132.0/30"}, true, false),
+			Parser:  NewParser([]string{"172.22.132.0/30"}), // , true, false),
 			Filters: []string{"172.22.132.3"},
-			IPs:     []string{"172.22.132.1", "172.22.132.2"},
+			IPs:     []string{"172.22.132.0", "172.22.132.1", "172.22.132.2"},
 		},
 	}
 

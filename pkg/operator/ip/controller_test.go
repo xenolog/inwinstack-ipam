@@ -47,19 +47,17 @@ func TestIPController(t *testing.T) {
 			Name: "test",
 		},
 		Spec: blendedv1.PoolSpec{
-			CIDR:              "172.22.132.0/24",
-			Addresses:         []string{"172.22.132.0-172.22.132.5"},
-			AssignToNamespace: false,
-			AvoidBuggyIPs:     true,
-			AvoidGatewayIPs:   false,
+			CIDR:          "172.22.132.0/24",
+			IncludeRanges: []string{"172.22.132.10-172.22.132.15"},
 		},
 		Status: blendedv1.PoolStatus{
-			CIDR:           "172.22.132.0/24",
-			Phase:          blendedv1.PoolActive,
-			AllocatedIPs:   []string{},
-			Capacity:       5,
-			Allocatable:    5,
-			LastUpdateTime: metav1.NewTime(time.Now()),
+			CIDR:         "172.22.132.0/24",
+			Ranges:       []string{"172.22.132.10-172.22.132.15"},
+			AllocatedIPs: []string{"172.22.132.10", "172.22.132.11"},
+			Capacity:     6,
+			Allocatable:  4,
+			Phase:        blendedv1.PoolActive,
+			LastUpdate:   metav1.NewTime(time.Now()),
 		},
 	}
 	_, err := blendedset.InwinstackV1().Pools().Create(pool)
@@ -83,15 +81,16 @@ func TestIPController(t *testing.T) {
 		assert.Nil(t, err)
 
 		if gip.Status.Phase == blendedv1.IPActive {
-			assert.Equal(t, "172.22.132.1", gip.Status.Address)
+			assert.Equal(t, "172.22.132.12", gip.Status.Address)
 			gpool, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
 			assert.Nil(t, err)
-			assert.Equal(t, []string{"172.22.132.1"}, gpool.Status.AllocatedIPs)
-			assert.Equal(t, 4, gpool.Status.Allocatable)
-			assert.Equal(t, 5, gpool.Status.Capacity)
+			assert.Equal(t, []string{"172.22.132.10", "172.22.132.11", "172.22.132.12"}, gpool.Status.AllocatedIPs)
+			assert.Equal(t, 3, gpool.Status.Allocatable)
+			assert.Equal(t, 6, gpool.Status.Capacity)
 			failed = false
 			break
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	assert.Equal(t, false, failed, "The service object failed to allocate IP.")
 
@@ -102,9 +101,9 @@ func TestIPController(t *testing.T) {
 
 	gpool, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
 	assert.Nil(t, err)
-	assert.Equal(t, []string{}, gpool.Status.AllocatedIPs)
-	assert.Equal(t, 5, gpool.Status.Allocatable)
-	assert.Equal(t, 5, gpool.Status.Capacity)
+	assert.Equal(t, []string{"172.22.132.10", "172.22.132.11"}, gpool.Status.AllocatedIPs)
+	assert.Equal(t, 4, gpool.Status.Allocatable)
+	assert.Equal(t, 6, gpool.Status.Capacity)
 
 	cancel()
 	controller.Stop()
@@ -125,19 +124,17 @@ func TestIPControllerAllocateSpecifidIP(t *testing.T) {
 			Name: "test2",
 		},
 		Spec: blendedv1.PoolSpec{
-			CIDR:              "172.22.132.0/24",
-			Addresses:         []string{"172.22.132.8-172.22.132.15"},
-			AssignToNamespace: false,
-			AvoidBuggyIPs:     true,
-			AvoidGatewayIPs:   false,
+			CIDR:          "172.22.132.0/24",
+			IncludeRanges: []string{"172.22.132.8-172.22.132.15"},
 		},
 		Status: blendedv1.PoolStatus{
-			CIDR:           "172.22.132.0/24",
-			Phase:          blendedv1.PoolActive,
-			AllocatedIPs:   []string{},
-			Capacity:       8,
-			Allocatable:    8,
-			LastUpdateTime: metav1.NewTime(time.Now()),
+			CIDR:         "172.22.132.0/24",
+			Ranges:       []string{"172.22.132.8-172.22.132.15"},
+			AllocatedIPs: []string{},
+			Capacity:     8,
+			Allocatable:  8,
+			Phase:        blendedv1.PoolActive,
+			LastUpdate:   metav1.NewTime(time.Now()),
 		},
 	}
 	_, err := blendedset.InwinstackV1().Pools().Create(pool)
@@ -163,7 +160,7 @@ func TestIPControllerAllocateSpecifidIP(t *testing.T) {
 			failed = false
 			break
 		}
-		time.Sleep(time.Second)
+		time.Sleep(50 * time.Millisecond)
 	}
 	assert.Equal(t, false, failed, "The service object failed to allocate IP.")
 
@@ -188,7 +185,7 @@ func TestIPControllerAllocateSpecifidIP(t *testing.T) {
 			failed = false
 			break
 		}
-		time.Sleep(time.Second)
+		time.Sleep(50 * time.Millisecond)
 	}
 	assert.Equal(t, false, failed, "The service object failed to allocate IP.")
 
@@ -212,7 +209,7 @@ func TestIPControllerAllocateSpecifidIP(t *testing.T) {
 			failed = false
 			break
 		}
-		time.Sleep(time.Second)
+		time.Sleep(50 * time.Millisecond)
 	}
 	assert.Equal(t, false, failed, "The service object failed to allocate IP.")
 

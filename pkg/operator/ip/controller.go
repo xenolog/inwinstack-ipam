@@ -33,7 +33,7 @@ import (
 	listerv1 "github.com/inwinstack/blended/generated/listers/inwinstack/v1"
 	"github.com/inwinstack/blended/k8sutil"
 	"github.com/inwinstack/ipam/pkg/config"
-	"github.com/inwinstack/ipam/pkg/ipaddr"
+	"github.com/inwinstack/ipam/pkg/ipallocator"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -191,7 +191,7 @@ func (c *Controller) makeFailedStatus(ip *blendedv1.IP, e error) error {
 	ip.Status.Address = ""
 	ip.Status.Phase = blendedv1.IPFailed
 	ip.Status.Reason = fmt.Sprintf("%+v.", e)
-	ip.Status.LastUpdateTime = metav1.Now()
+	ip.Status.LastUpdate = metav1.Now()
 	delete(ip.Annotations, constants.NeedUpdateKey)
 	if _, err := c.blendedset.InwinstackV1().IPs(ip.Namespace).UpdateStatus(ip); err != nil {
 		return err
@@ -200,7 +200,7 @@ func (c *Controller) makeFailedStatus(ip *blendedv1.IP, e error) error {
 }
 
 func (c *Controller) allocate(ip *blendedv1.IP) (rv error) {
-	var allocatedIP string
+	var wantedIP string
 
 	ipCopy := ip.DeepCopy()
 	updateIP := false
@@ -250,40 +250,47 @@ func (c *Controller) allocate(ip *blendedv1.IP) (rv error) {
 				return c.makeFailedStatus(ipCopy, fmt.Errorf("The '%s' pool has been exhausted", pool.Name))
 			}
 
-			parser := ipaddr.NewParser(pool.Spec.Addresses, pool.Spec.AvoidBuggyIPs, pool.Spec.AvoidGatewayIPs)
-			ips, err := parser.FilterIPs(pool.Status.AllocatedIPs, pool.Spec.FilterIPs)
-			if err != nil {
-				return c.makeFailedStatus(ipCopy, err)
-			}
-
 			if ipCopy.Spec.WantedAddress != "" {
 				// Specific IP address requested:
 				// check to duplicate allocation
 				if funk.ContainsString(pool.Status.AllocatedIPs, ipCopy.Spec.WantedAddress) {
 					return c.makeFailedStatus(
 						ipCopy,
-						fmt.Errorf("IP address '%s' can't be allocated twice from pool '%s'", ipCopy.Spec.WantedAddress, pool.Name),
+						fmt.Errorf("Requested IP address '%s' already allocated from pool '%s'", ipCopy.Spec.WantedAddress, pool.Name),
 					)
 				}
-				// check is IP address in pool range
-				if !funk.ContainsString(ips, ipCopy.Spec.WantedAddress) {
-					return c.makeFailedStatus(
-						ipCopy,
-						fmt.Errorf("IP address '%s' is out of range %v for pool '%s'", ipCopy.Spec.WantedAddress, pool.Spec.Addresses, pool.Name),
-					)
-				}
-				allocatedIP = ipCopy.Spec.WantedAddress
+				wantedIP = ipCopy.Spec.WantedAddress
 			} else {
-				allocatedIP = ips[0]
+				a := len(pool.Status.AllocatedIPs)
+				if a > 0 {
+					wantedIP = pool.Status.AllocatedIPs[a-1]
+				} else {
+					wantedIP = ""
+				}
 			}
 
-			poolCopy.Status.AllocatedIPs = append(poolCopy.Status.AllocatedIPs, allocatedIP)
-			poolCopy.Status.Allocatable = poolCopy.Status.Capacity - len(poolCopy.Status.AllocatedIPs)
+			allocatedIP, _, freeIPs, err := ipallocator.Allocate(poolCopy.Status.Ranges, pool.Status.AllocatedIPs, wantedIP)
+			if err != nil {
+				return c.makeFailedStatus(ipCopy, err)
+			} else if allocatedIP != wantedIP && ipCopy.Spec.WantedAddress != "" {
+				return c.makeFailedStatus(
+					ipCopy,
+					fmt.Errorf("Requested IP address '%s' can't be allocated from pool '%s'", ipCopy.Spec.WantedAddress, pool.Name),
+				)
+			}
+
+			if ipCopy.Spec.WantedAddress != "" {
+				// prevent to break seris
+				poolCopy.Status.AllocatedIPs = append([]string{allocatedIP}, poolCopy.Status.AllocatedIPs...)
+			} else {
+				poolCopy.Status.AllocatedIPs = append(poolCopy.Status.AllocatedIPs, allocatedIP)
+			}
+			poolCopy.Status.Allocatable = freeIPs
 			ipCopy.Status.Reason = ""
 			ipCopy.Status.Address = allocatedIP
 			updateIPstatus = true
 			if err := c.updatePoolStatus(poolCopy); err != nil {
-				// If the pool failed to update, this res will requeue
+				// If the pool failed to update, this resource will be requeued
 				return err
 			}
 
@@ -345,7 +352,7 @@ func (c *Controller) deallocate(ip *blendedv1.IP) error {
 		return err
 	}
 
-	ipCopy.Status.LastUpdateTime = metav1.Now()
+	ipCopy.Status.LastUpdate = metav1.Now()
 	ipCopy.Status.Phase = blendedv1.IPTerminating
 	delete(ip.Annotations, constants.NeedUpdateKey)
 	k8sutil.RemoveFinalizer(&ipCopy.ObjectMeta, constants.CustomFinalizer)
@@ -356,7 +363,7 @@ func (c *Controller) deallocate(ip *blendedv1.IP) error {
 }
 
 func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
-	pool.Status.LastUpdateTime = metav1.Now()
+	pool.Status.LastUpdate = metav1.Now()
 	if _, err := c.blendedset.InwinstackV1().Pools().UpdateStatus(pool); err != nil {
 		glog.V(4).Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
 		return err
@@ -378,7 +385,7 @@ func (c *Controller) updatePool(pool *blendedv1.Pool) (err error) {
 }
 
 func (c *Controller) updateIPStatus(ip *blendedv1.IP) error {
-	ip.Status.LastUpdateTime = metav1.Now()
+	ip.Status.LastUpdate = metav1.Now()
 	if _, err := c.blendedset.InwinstackV1().IPs(ip.Namespace).UpdateStatus(ip); err != nil {
 		glog.V(4).Infof("error while update IPStatus '%s': %+v.", ip.Name, err)
 		return err

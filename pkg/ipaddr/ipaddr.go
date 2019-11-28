@@ -27,16 +27,17 @@ import (
 )
 
 type Parser struct {
-	Addresses    []string
-	AvoidBuggy   bool
-	AvoidGateway bool
+	Addresses []string
+	// AvoidBuggy   bool
+	// AvoidGateway bool
 }
 
-func NewParser(addrs []string, buggy, gateway bool) *Parser {
+// func NewParser(addrs []string, buggy, gateway bool) *Parser {
+func NewParser(addrs []string) *Parser {
 	return &Parser{
-		Addresses:    addrs,
-		AvoidBuggy:   buggy,
-		AvoidGateway: gateway,
+		Addresses: addrs,
+		// AvoidBuggy:   buggy,
+		// AvoidGateway: gateway,
 	}
 }
 
@@ -109,13 +110,13 @@ func inc(ip net.IP) {
 func (p *Parser) getIPs(ipnet *net.IPNet) []string {
 	var ips []string
 	for ip := ipnet.IP.Mask(ipnet.Mask); ipnet.Contains(ip); inc(ip) {
-		if p.AvoidBuggy && p.isBuggyIP(ip.String()) {
-			continue
-		}
+		// if p.AvoidBuggy && p.isBuggyIP(ip.String()) {
+		// 	continue
+		// }
 
-		if p.AvoidGateway && p.isGatewayIP(ip.String()) {
-			continue
-		}
+		// if p.AvoidGateway && p.isGatewayIP(ip.String()) {
+		// 	continue
+		// }
 		ips = append(ips, ip.String())
 	}
 	return ips
