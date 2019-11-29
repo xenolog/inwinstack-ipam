@@ -5,8 +5,6 @@ VERSION_TSTAMP ?= $(shell date -u +%Y%m%d-%H%M%S)
 VERSION_SHA    ?= $(shell git rev-parse --short HEAD)
 VERSION ?= v$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_BUILD)-mirantis-$(VERSION_TSTAMP)-$(VERSION_SHA)
 
-GO111MODULE ?= on
-
 MODPATH ?= $(shell head -n1 go.mod | grep module | awk '{print $$2}')
 BINNAME ?= inwinstack-ipam
 
@@ -24,6 +22,8 @@ ifdef DOCKER_FILE
 endif
 GERRIT_URL ?= ssh://gerrit.mcp.mirantis.net:29418
 
+BUILD_FLAGS ?= -ldflags="-d -s -w -X $(MODPATH)/pkg/version.version=$(VERSION)" -tags netgo -installsuffix netgo
+
 $(shell mkdir -p ./out)
 
 .PHONY: install-tools
@@ -39,12 +39,10 @@ build: out/$(BINNAME)
 
 .PHONY: out/$(BINNAME)
 out/$(BINNAME):
-	CGO_ENABLED=0 GO111MODULE=$(GO111MODULE) go build \
-	  -ldflags="-s -w -X $(MODPATH)/pkg/version.version=$(VERSION)" \
-	  -a -o $@ cmd/main.go
+	CGO_ENABLED=0 go build $(BUILD_FLAGS) -a -o $@ cmd/main.go
 
 .PHONY: cicd-build-binary
-cicd-build-binary: install-tools git-config build
+cicd-build-binary: install-tools git-config test build
 
 .PHONY: cicd-build-image
 cicd-build-image:
@@ -58,10 +56,17 @@ cicd-version:
 version:
 	@echo $(VERSION)
 
-.PHONY: test
-test:
-	./hack/test-go.sh
-
 .PHONY: clean
 clean:
 	rm -rf out/
+
+.PHONY: generate
+generate:
+	go generate ./...
+
+.PHONY: test
+test:
+	go version
+	gofmt -d  $(shell find . -name '*.go')
+	CGO_ENABLED=0 go vet $(BUILD_FLAGS) ./...
+	CGO_ENABLED=0 go test $(BUILD_FLAGS) ./...

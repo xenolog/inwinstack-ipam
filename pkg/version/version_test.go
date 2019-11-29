@@ -22,8 +22,7 @@ import (
 )
 
 func TestGetVersion(t *testing.T) {
-	assert.Equal(t, "v0.0.0-unset", GetVersion())
-
+	oldVersion := version
 	version = "v0.1.0"
-	assert.Equal(t, "v0.1.0", GetVersion())
+	assert.NotEqual(t, oldVersion, GetVersion())
 }
