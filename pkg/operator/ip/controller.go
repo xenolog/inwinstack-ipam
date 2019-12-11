@@ -34,6 +34,7 @@ import (
 	"github.com/inwinstack/blended/k8sutil"
 	"github.com/inwinstack/ipam/pkg/config"
 	"github.com/inwinstack/ipam/pkg/ipallocator"
+	"github.com/inwinstack/ipam/pkg/version"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -191,12 +192,8 @@ func (c *Controller) makeFailedStatus(ip *blendedv1.IP, e error) error {
 	ip.Status.Address = ""
 	ip.Status.Phase = blendedv1.IPFailed
 	ip.Status.Reason = fmt.Sprintf("%+v.", e)
-	ip.Status.LastUpdate = metav1.Now()
 	delete(ip.Annotations, constants.NeedUpdateKey)
-	if _, err := c.blendedset.InwinstackV1().IPs(ip.Namespace).UpdateStatus(ip); err != nil {
-		return err
-	}
-	return nil
+	return c.updateIPStatus(ip)
 }
 
 func (c *Controller) allocate(ip *blendedv1.IP) (rv error) {
@@ -352,17 +349,14 @@ func (c *Controller) deallocate(ip *blendedv1.IP) error {
 		return err
 	}
 
-	ipCopy.Status.LastUpdate = metav1.Now()
 	ipCopy.Status.Phase = blendedv1.IPTerminating
 	delete(ip.Annotations, constants.NeedUpdateKey)
 	k8sutil.RemoveFinalizer(&ipCopy.ObjectMeta, constants.CustomFinalizer)
-	if _, err := c.blendedset.InwinstackV1().IPs(ipCopy.Namespace).UpdateStatus(ipCopy); err != nil {
-		return err
-	}
-	return nil
+	return c.updateIPStatus(ipCopy)
 }
 
 func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
+	pool.Status.Version = version.GetVersion()
 	pool.Status.LastUpdate = metav1.Now()
 	if _, err := c.blendedset.InwinstackV1().Pools().UpdateStatus(pool); err != nil {
 		glog.V(4).Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
@@ -385,6 +379,7 @@ func (c *Controller) updatePool(pool *blendedv1.Pool) (err error) {
 }
 
 func (c *Controller) updateIPStatus(ip *blendedv1.IP) error {
+	ip.Status.Version = version.GetVersion()
 	ip.Status.LastUpdate = metav1.Now()
 	if _, err := c.blendedset.InwinstackV1().IPs(ip.Namespace).UpdateStatus(ip); err != nil {
 		glog.V(4).Infof("error while update IPStatus '%s': %+v.", ip.Name, err)

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/golang/glog"
@@ -65,13 +66,28 @@ func restConfig(kubeconfig string) (*rest.Config, error) {
 	return cfg, nil
 }
 
+func versionInfo() []string {
+	rv := []string{
+		fmt.Sprintf("Inwinstack-IPAM Version: %s", version.GetVersion()),
+		fmt.Sprintf("Go Version: %s", runtime.Version()),
+		fmt.Sprintf("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH),
+	}
+	return rv
+}
+
 func main() {
 	defer glog.Flush()
 	parserFlags()
 
 	if ver {
-		fmt.Fprintf(os.Stdout, "%s\n", version.GetVersion())
+		for _, s := range versionInfo() {
+			fmt.Fprintln(os.Stdout, s)
+		}
 		os.Exit(0)
+	}
+
+	for _, s := range versionInfo() {
+		glog.Infoln(s)
 	}
 
 	k8scfg, err := restConfig(kubeconfig)

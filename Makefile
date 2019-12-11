@@ -22,7 +22,9 @@ ifdef DOCKER_FILE
 endif
 GERRIT_URL ?= ssh://gerrit.mcp.mirantis.net:29418
 
-BUILD_FLAGS ?= -ldflags="-d -s -w -X $(MODPATH)/pkg/version.version=$(VERSION)" -tags netgo -installsuffix netgo
+BUILD_FLAGS_DD ?= $(if $(filter $(shell go env GOHOSTOS),darwin),,-d)
+
+BUILD_FLAGS ?= -ldflags="$(BUILD_FLAGS_DD) -s -w -X $(MODPATH)/pkg/version.version=$(VERSION)" -tags netgo -installsuffix netgo
 
 $(shell mkdir -p ./out)
 

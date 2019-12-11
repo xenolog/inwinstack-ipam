@@ -36,6 +36,7 @@ import (
 	listerv1 "github.com/inwinstack/blended/generated/listers/inwinstack/v1"
 	"github.com/inwinstack/blended/k8sutil"
 	"github.com/inwinstack/ipam/pkg/ipallocator"
+	"github.com/inwinstack/ipam/pkg/version"
 	"k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -301,6 +302,7 @@ func (c *Controller) cleanup(pool *blendedv1.Pool) error {
 
 func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
 	pool.Status.LastUpdate = metav1.Now()
+	pool.Status.Version = version.GetVersion()
 	if _, err := c.blendedset.InwinstackV1().Pools().UpdateStatus(pool); err != nil {
 		glog.V(4).Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
 		return err
