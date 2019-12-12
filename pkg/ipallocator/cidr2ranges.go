@@ -26,7 +26,7 @@ func CalculateRanges(cidrS string, includeRanges []string, useWholeCidr bool, ex
 	if len(includeRanges) == 0 {
 		// calculate ranges from CIDR
 		tmp, _ := cidr32.CidrToRange(cidrN, !useWholeCidr)
-		ranges = append(ranges, tmp)
+		ranges = append(ranges, *tmp)
 	} else {
 		for _, r := range includeRanges {
 			rng, err := cidr32.NewRange(r)
@@ -34,7 +34,7 @@ func CalculateRanges(cidrS string, includeRanges []string, useWholeCidr bool, ex
 				return []string{}, 0, fmt.Errorf("Wrong includeRange for CIDR '%s': %w", cidrS, err)
 			}
 			tmp, _ := rng.CutToCidr(cidrN, !useWholeCidr)
-			ranges = append(ranges, tmp)
+			ranges = append(ranges, *tmp)
 		}
 	}
 
@@ -46,7 +46,7 @@ func CalculateRanges(cidrS string, includeRanges []string, useWholeCidr bool, ex
 					return []string{}, 0, fmt.Errorf("Wrong excludeRange for CIDR '%s': %w", cidrS, err)
 				}
 				if tmp, r := ranges.ExcludeRange(rng); r != 0 {
-					ranges = *tmp
+					ranges = tmp
 				}
 			}
 		}

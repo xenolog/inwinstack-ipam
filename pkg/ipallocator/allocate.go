@@ -22,9 +22,9 @@ func Allocate(ranges, allocated []string, wanted string) (rv string, capacity, f
 		if err != nil {
 			return "", 0, 0, fmt.Errorf("Can't create IPRange for '%s': %w", rs, err)
 		}
-		ipRanges = append(ipRanges, tmp)
+		ipRanges = append(ipRanges, *tmp)
 	}
-	ipRanges = *ipRanges.Arranged()
+	ipRanges = ipRanges.Arranged()
 
 	allocatedIPs := cidr32.NewIPList(allocated)
 
