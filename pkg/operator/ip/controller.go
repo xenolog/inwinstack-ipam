@@ -306,6 +306,11 @@ func (c *Controller) allocate(ip *blendedv1.IP) (rv error) {
 		ipCopy.Status.Reason = fmt.Sprintf("The '%s' pool has been terminated.", pool.Name)
 		ipCopy.Status.Phase = blendedv1.IPFailed
 		updateIPstatus = true
+
+	default:
+		ipCopy.Status.Reason = fmt.Sprintf("The '%s' pool is unoperable", pool.Name)
+		ipCopy.Status.Phase = blendedv1.IPFailed
+		updateIPstatus = true
 	}
 
 	if ipCopy.Labels[config.IPlabel] != ipCopy.Status.Address {

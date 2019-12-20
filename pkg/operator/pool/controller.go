@@ -208,12 +208,19 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 		glog.V(4).Infof("Modifying Status.CIDR for Pool '%s'", pool.Name)
 		cidr := strings.TrimSpace(pool.Spec.CIDR)
 		ipA, ipN, err := net.ParseCIDR(cidr)
-		ipAddr := fmt.Sprintf("%s", ipA)
-		if err != nil || ipAddr != fmt.Sprintf("%s", ipN.IP) {
+		if err != nil {
 			return c.makeFailedStatus(
 				pool,
 				fmt.Errorf("Wrong CIDR '%s' for pool '%s': %w", cidr, pool.Name, err),
 			)
+		}
+		ipAddr := ipA.String()
+		masklen, _ := ipN.Mask.Size()
+		if ipAddr != ipN.IP.String() {
+			newCidr := fmt.Sprintf("%s/%d", ipN.IP, masklen)
+			glog.V(4).Infof("Wrong CIDR '%s' for pool '%s'. Corrected, will be used '%s'.", cidr, pool.Name, newCidr)
+			cidr = newCidr
+			ipA, ipN, _ = net.ParseCIDR(cidr)
 		}
 		poolCopy.Status.CIDR = cidr
 
@@ -222,15 +229,6 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 
 	if pool.Spec.Gateway != pool.Status.Gateway {
 		glog.V(4).Infof("Modifying Status.Gateway for Pool '%s'", pool.Name)
-		gwAddrString := strings.TrimSpace(pool.Spec.Gateway)
-		gwA, gwNet, err := net.ParseCIDR(fmt.Sprintf("%s/24", gwAddrString))
-		gwAddr := fmt.Sprintf("%s", gwA)
-		if err != nil {
-			return c.makeFailedStatus(
-				poolCopy,
-				fmt.Errorf("Wrong Gateway '%s' for pool '%s': %w", gwAddrString, pool.Name, err),
-			)
-		}
 		_, poolNet, err := net.ParseCIDR(poolCopy.Status.CIDR) // only poolCopy should be used here
 		if err != nil {
 			return c.makeFailedStatus(
@@ -238,13 +236,22 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 				fmt.Errorf("Wrong Status.CIDR '%s' in the pool '%s': %w", poolCopy.Status.CIDR, pool.Name, err),
 			)
 		}
+		masklen, _ := poolNet.Mask.Size()
+		gwAddrString := strings.TrimSpace(pool.Spec.Gateway)
+		gwA, gwNet, err := net.ParseCIDR(fmt.Sprintf("%s/%d", gwAddrString, masklen))
+		if err != nil {
+			return c.makeFailedStatus(
+				poolCopy,
+				fmt.Errorf("Wrong Gateway '%s' for pool '%s': %w", gwAddrString, pool.Name, err),
+			)
+		}
 		if !reflect.DeepEqual(*gwNet, *poolNet) {
 			return c.makeFailedStatus(
 				poolCopy,
-				fmt.Errorf("Gateway '%s' not in pool '%s' CIDR '%s'", gwAddrString, pool.Name, poolCopy.Spec.CIDR),
+				fmt.Errorf("Gateway '%s' not in pool '%s' CIDR '%s'", gwAddrString, pool.Name, poolCopy.Status.CIDR),
 			)
 		}
-		poolCopy.Status.Gateway = gwAddr
+		poolCopy.Status.Gateway = gwA.String()
 	}
 
 	if !reflect.DeepEqual(pool.Spec.Nameservers, pool.Status.Nameservers) {
@@ -253,7 +260,7 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 		poolCopy.Status.Nameservers = []string{}
 		for _, ip := range pool.Spec.Nameservers {
 			nsA, _, err := net.ParseCIDR(fmt.Sprintf("%s/32", ip))
-			nsAddr := fmt.Sprintf("%s", nsA)
+			nsAddr := nsA.String()
 			if err != nil {
 				return c.makeFailedStatus(
 					poolCopy,
@@ -286,7 +293,7 @@ func (c *Controller) makeFailedStatus(pool *blendedv1.Pool, e error) error {
 	if err := c.updatePool(poolCopy); err != nil {
 		return err
 	}
-	glog.Errorf("Pool got an error: %+v.", e)
+	glog.Errorf("Pool got an error: %v", e)
 	return nil
 }
 

@@ -257,3 +257,59 @@ func TestPoolController(t *testing.T) {
 	cancel()
 	controller.Stop()
 }
+
+func TestWrongCidrPool(t *testing.T) {
+	// var lastUpdate metav1.Time
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := &config.Config{Threads: 2}
+	blendedset := blendedfake.NewSimpleClientset()
+	informer := blendedinformers.NewSharedInformerFactory(blendedset, 0)
+
+	controller := NewController(blendedset, informer.Inwinstack().V1().Pools())
+	go informer.Start(ctx.Done())
+	assert.Nil(t, controller.Run(ctx, cfg.Threads))
+
+	pool := &blendedv1.Pool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pool",
+		},
+		Spec: blendedv1.PoolSpec{
+			CIDR: "172.18.170.65/26",
+			ExcludeRanges: []string{
+				"172.18.170.81",
+				"172.18.170.82-172.18.170.90",
+			},
+			Gateway: "172.18.170.65",
+			IncludeRanges: []string{
+				"172.18.170.92-172.18.170.110",
+			},
+			Nameservers: []string{
+				"172.18.176.6",
+			},
+		},
+	}
+
+	// Create the pool
+	_, err := blendedset.InwinstackV1().Pools().Create(pool)
+	assert.Nil(t, err)
+
+	failed := true
+	for start := time.Now(); time.Since(start) < timeout; {
+		p, err := blendedset.InwinstackV1().Pools().Get(pool.Name, metav1.GetOptions{})
+		assert.Nil(t, err)
+
+		if p.Status.Phase == blendedv1.PoolActive {
+			assert.Equal(t, []string{}, p.Status.AllocatedIPs)
+			assert.Equal(t, "172.18.170.64/26", p.Status.CIDR)
+			assert.Equal(t, []string{"172.18.170.92-172.18.170.110"}, p.Status.Ranges)
+			failed = false
+			// lastUpdate = p.Status.LastUpdate
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	assert.Equal(t, false, failed, "The pool object failed to make status.")
+
+	cancel()
+	controller.Stop()
+}
