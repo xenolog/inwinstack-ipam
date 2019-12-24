@@ -308,7 +308,7 @@ func (c *Controller) allocate(ip *blendedv1.IP) (rv error) {
 		updateIPstatus = true
 
 	default:
-		ipCopy.Status.Reason = fmt.Sprintf("The '%s' pool is unoperable", pool.Name)
+		ipCopy.Status.Reason = fmt.Sprintf("The '%s' pool is inoperable", pool.Name)
 		ipCopy.Status.Phase = blendedv1.IPFailed
 		updateIPstatus = true
 	}

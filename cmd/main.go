@@ -50,18 +50,11 @@ func parserFlags() {
 	flag.Parse()
 }
 
-func restConfig(kubeconfig string) (*rest.Config, error) {
+func restConfig(kubeconfig string) (cfg *rest.Config, err error) {
 	if kubeconfig != "" {
-		cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			return nil, err
-		}
-		return cfg, nil
-	}
-
-	cfg, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, err
+		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+	} else {
+		cfg, err = rest.InClusterConfig()
 	}
 	return cfg, nil
 }
