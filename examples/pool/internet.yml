@@ -3,7 +3,7 @@ kind: Pool
 metadata:
   name: internet
 spec:
-  CIDR: 140.145.33.128/25
+  cidr: 140.145.33.128/25
   excludeRanges:
     - 140.145.33.132-140.145.33.135
   gateway: 140.145.33.129
