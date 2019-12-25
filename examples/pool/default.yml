@@ -3,13 +3,7 @@ kind: Pool
 metadata:
   name: default
 spec:
-  addresses: 
+  CIDR: 172.22.132.0/24
+  includeRanges:
   - 172.22.132.200-172.22.132.230
-  assignToNamespace: true
-  avoidBuggyIPs: true
-  avoidGatewayIPs: false
-  ignoreNamespaces:
-  - kube-system
-  - kube-public
-  - default
-  
+  gateway: 172.22.132.1

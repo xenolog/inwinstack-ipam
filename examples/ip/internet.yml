@@ -5,3 +5,4 @@ metadata:
   namespace: test
 spec:
   poolName: internet
+  wantedAddress: 140.145.33.138

@@ -3,14 +3,10 @@ kind: Pool
 metadata:
   name: internet
 spec:
-  addresses: 
-  - 140.145.33.128/25 
-  assignToNamespace: false
-  avoidBuggyIPs: true
-  avoidGatewayIPs: false
-  ignoreNamespaceAnnotation: true
-  ignoreNamespaces:
-  - kube-system
-  - kube-public
-  - default
-  
+  CIDR: 140.145.33.128/25
+  excludeRanges:
+    - 140.145.33.132-140.145.33.135
+  gateway: 140.145.33.129
+  nameservers:
+    - 8.8.8.8
+    - 8.8.4.4
