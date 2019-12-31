@@ -357,7 +357,7 @@ func (c *Controller) deallocate(ip *blendedv1.IP) error {
 	ipCopy.Status.Phase = blendedv1.IPTerminating
 	delete(ip.Annotations, constants.NeedUpdateKey)
 	k8sutil.RemoveFinalizer(&ipCopy.ObjectMeta, constants.CustomFinalizer)
-	return c.updateIPStatus(ipCopy)
+	return c.updateIP(ipCopy)
 }
 
 func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
