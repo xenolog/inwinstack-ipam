@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/glog"
 	blendedv1 "github.com/inwinstack/blended/apis/inwinstack/v1"
 	blended "github.com/inwinstack/blended/generated/clientset/versioned"
 	informerv1 "github.com/inwinstack/blended/generated/informers/externalversions/inwinstack/v1"
@@ -31,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog"
 )
 
 // Controller represents the controller of ip
@@ -67,8 +67,8 @@ func NewController(blendedset blended.Interface, informer informerv1.IPInformer)
 
 // Run serves the ip controller
 func (c *Controller) Run(ctx context.Context, threadiness int) error {
-	glog.Info("Starting the ip controller")
-	glog.Info("Waiting for the ip informer caches to sync")
+	klog.Info("Starting the ip controller")
+	klog.Info("Waiting for the ip informer caches to sync")
 	if ok := cache.WaitForCacheSync(ctx.Done(), c.synced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
@@ -81,7 +81,7 @@ func (c *Controller) Run(ctx context.Context, threadiness int) error {
 
 // Stop stops the ip controller
 func (c *Controller) Stop() {
-	glog.Info("Stopping the ip controller")
+	klog.Info("Stopping the ip controller")
 	c.queue.ShutDown()
 }
 
@@ -112,7 +112,7 @@ func (c *Controller) processNextWorkItem() bool {
 		}
 
 		c.queue.Forget(obj)
-		glog.V(2).Infof("IP successfully synced '%s'", key)
+		klog.V(2).Infof("IP successfully synced '%s'", key)
 		return nil
 	}(obj)
 

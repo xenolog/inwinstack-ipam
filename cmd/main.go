@@ -18,21 +18,21 @@ package main
 
 import (
 	"context"
-	goflag "flag"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
 
-	"github.com/golang/glog"
 	blended "github.com/inwinstack/blended/generated/clientset/versioned"
 	"github.com/inwinstack/ipam/pkg/config"
 	"github.com/inwinstack/ipam/pkg/operator"
 	"github.com/inwinstack/ipam/pkg/version"
-	flag "github.com/spf13/pflag"
+	"github.com/spf13/pflag"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog"
 )
 
 var (
@@ -40,15 +40,6 @@ var (
 	kubeconfig string
 	ver        bool
 )
-
-func parserFlags() {
-	flag.StringVarP(&kubeconfig, "kubeconfig", "", "", "Absolute path to the kubeconfig file.")
-	flag.IntVarP(&cfg.Threads, "threads", "", 2, "Number of worker threads used by the controller.")
-	flag.IntVarP(&cfg.SyncSec, "sync-seconds", "", 30, "Seconds for syncing and retrying objects.")
-	flag.BoolVarP(&ver, "version", "", false, "Display the version")
-	flag.CommandLine.AddGoFlagSet(goflag.CommandLine)
-	flag.Parse()
-}
 
 func restConfig(kubeconfig string) (cfg *rest.Config, err error) {
 	if kubeconfig != "" {
@@ -69,8 +60,14 @@ func versionInfo() []string {
 }
 
 func main() {
-	defer glog.Flush()
-	parserFlags()
+	defer klog.Flush()
+	klog.InitFlags(flag.CommandLine)
+	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+	pflag.StringVarP(&kubeconfig, "kubeconfig", "", "", "Absolute path to the kubeconfig file.")
+	pflag.IntVarP(&cfg.Threads, "threads", "", 2, "Number of worker threads used by the controller.")
+	pflag.IntVarP(&cfg.SyncSec, "sync-seconds", "", 30, "Seconds for syncing and retrying objects.")
+	pflag.BoolVarP(&ver, "version", "", false, "Display the version")
+	pflag.Parse()
 
 	if ver {
 		for _, s := range versionInfo() {
@@ -80,17 +77,17 @@ func main() {
 	}
 
 	for _, s := range versionInfo() {
-		glog.Infoln(s)
+		klog.Infoln(s)
 	}
 
 	k8scfg, err := restConfig(kubeconfig)
 	if err != nil {
-		glog.Fatalf("Error to build kubeconfig: %s", err.Error())
+		klog.Fatalf("Error to build kubeconfig: %s", err.Error())
 	}
 
 	blendedclient, err := blended.NewForConfig(k8scfg)
 	if err != nil {
-		glog.Fatalf("Error to build Blended client: %s", err.Error())
+		klog.Fatalf("Error to build Blended client: %s", err.Error())
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -99,11 +96,11 @@ func main() {
 
 	op := operator.New(cfg, blendedclient)
 	if err := op.Run(ctx); err != nil {
-		glog.Fatalf("Error to serve the operator instance: %s.", err)
+		klog.Fatalf("Error to serve the operator instance: %s.", err)
 	}
 
 	<-signalChan
 	cancel()
 	op.Stop()
-	glog.Infof("Shutdown signal received, exiting...")
+	klog.Infof("Shutdown signal received, exiting...")
 }

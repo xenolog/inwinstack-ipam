@@ -22,7 +22,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/golang/glog"
 	blendedv1 "github.com/inwinstack/blended/apis/inwinstack/v1"
 	"github.com/inwinstack/blended/constants"
 	"github.com/inwinstack/blended/k8sutil"
@@ -33,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog"
 )
 
 func (c *Controller) reconcile(key string) error {
@@ -83,7 +83,7 @@ func (c *Controller) checkAndUdateFinalizer(pool *blendedv1.Pool) error {
 	poolCopy := pool.DeepCopy()
 	ok := funk.ContainsString(poolCopy.Finalizers, constants.CustomFinalizer)
 	if poolCopy.Status.Phase == blendedv1.PoolActive && !ok {
-		glog.V(4).Infof("UdateFinalizer for Pool '%s'", poolCopy.Name)
+		klog.Infof("UdateFinalizer for Pool '%s'", poolCopy.Name)
 		k8sutil.AddFinalizer(&poolCopy.ObjectMeta, constants.CustomFinalizer)
 		if err := c.updatePool(poolCopy); err != nil {
 			return err
@@ -93,7 +93,7 @@ func (c *Controller) checkAndUdateFinalizer(pool *blendedv1.Pool) error {
 }
 
 func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
-	glog.V(4).Infof("makeStatus for Pool '%s'", pool.Name)
+	klog.Infof("makeStatus for Pool '%s'", pool.Name)
 	poolCopy := pool.DeepCopy()
 	if poolCopy.Status.AllocatedIPs == nil {
 		poolCopy.Status.AllocatedIPs = []string{}
@@ -101,7 +101,7 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 
 	if pool.Spec.CIDR != pool.Status.CIDR || pool.Status.CIDR == "" {
 		// CIDR updated
-		glog.V(4).Infof("Modifying Status.CIDR for Pool '%s'", pool.Name)
+		klog.Infof("Modifying Status.CIDR for Pool '%s'", pool.Name)
 		cidr := strings.TrimSpace(pool.Spec.CIDR)
 		ipA, ipN, err := net.ParseCIDR(cidr)
 		if err != nil {
@@ -114,7 +114,7 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 		masklen, _ := ipN.Mask.Size()
 		if ipAddr != ipN.IP.String() {
 			newCidr := fmt.Sprintf("%s/%d", ipN.IP, masklen)
-			glog.V(4).Infof("Wrong CIDR '%s' for pool '%s'. Corrected, will be used '%s'.", cidr, pool.Name, newCidr)
+			klog.Infof("Wrong CIDR '%s' for pool '%s'. Corrected, will be used '%s'.", cidr, pool.Name, newCidr)
 			cidr = newCidr
 			ipA, ipN, _ = net.ParseCIDR(cidr)
 		}
@@ -124,7 +124,7 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 	}
 
 	if pool.Spec.Gateway != pool.Status.Gateway {
-		glog.V(4).Infof("Modifying Status.Gateway for Pool '%s'", pool.Name)
+		klog.Infof("Modifying Status.Gateway for Pool '%s'", pool.Name)
 		_, poolNet, err := net.ParseCIDR(poolCopy.Status.CIDR) // only poolCopy should be used here
 		if err != nil {
 			return c.makeFailedStatus(
@@ -151,7 +151,7 @@ func (c *Controller) makeStatus(pool *blendedv1.Pool) error {
 	}
 
 	if !reflect.DeepEqual(pool.Spec.Nameservers, pool.Status.Nameservers) {
-		glog.V(4).Infof("Modifying Status.Nameservers for Pool '%s'", pool.Name)
+		klog.Infof("Modifying Status.Nameservers for Pool '%s'", pool.Name)
 		// validate nameservers IP addrsses
 		poolCopy.Status.Nameservers = []string{}
 		for _, ip := range pool.Spec.Nameservers {
@@ -189,13 +189,13 @@ func (c *Controller) makeFailedStatus(pool *blendedv1.Pool, e error) error {
 	if err := c.updatePool(poolCopy); err != nil {
 		return err
 	}
-	glog.Errorf("Pool got an error: %v", e)
+	klog.Errorf("Pool got an error: %v", e)
 	return nil
 }
 
 func (c *Controller) cleanup(pool *blendedv1.Pool) error {
 	poolCopy := pool.DeepCopy()
-	glog.V(4).Infof("Clanup Pool '%s'", poolCopy.Name)
+	klog.Infof("Clanup Pool '%s'", poolCopy.Name)
 	poolCopy.Status.Phase = blendedv1.PoolTerminating
 	if len(poolCopy.Status.AllocatedIPs) == 0 {
 		k8sutil.RemoveFinalizer(&poolCopy.ObjectMeta, constants.CustomFinalizer)
@@ -207,7 +207,7 @@ func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
 	pool.Status.LastUpdate = metav1.Now()
 	pool.Status.Version = version.GetVersion()
 	if _, err := c.blendedset.InwinstackV1().Pools().UpdateStatus(pool); err != nil {
-		glog.V(4).Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
+		klog.Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
 		return err
 	}
 	return nil
@@ -217,7 +217,7 @@ func (c *Controller) updatePool(pool *blendedv1.Pool) (err error) {
 	var newPool *blendedv1.Pool
 	poolStatus := pool.Status.DeepCopy()
 	if newPool, err = c.blendedset.InwinstackV1().Pools().Update(pool); err != nil {
-		glog.V(4).Infof("error while update pool '%s': %+v.", pool.Name, err)
+		klog.Infof("error while update pool '%s': %+v.", pool.Name, err)
 	} else {
 		newPool.Status = *poolStatus
 		err = c.updatePoolStatus(newPool)

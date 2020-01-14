@@ -21,7 +21,6 @@ import (
 	"net"
 	"strings"
 
-	"github.com/golang/glog"
 	blendedv1 "github.com/inwinstack/blended/apis/inwinstack/v1"
 	"github.com/inwinstack/blended/constants"
 	"github.com/inwinstack/blended/k8sutil"
@@ -33,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog"
 )
 
 func (c *Controller) reconcile(key string) error {
@@ -60,7 +60,7 @@ func (c *Controller) reconcile(key string) error {
 	}
 
 	if ip.Status.Phase != blendedv1.IPActive || k8sutil.IsNeedToUpdate(ip.ObjectMeta) {
-		glog.V(4).Infof("Allocate address for '%s'", ip.Name)
+		klog.Infof("Allocate address for '%s'", ip.Name)
 		if err := c.allocate(ip); err != nil {
 			return err
 		}
@@ -109,14 +109,14 @@ func (c *Controller) allocate(ip *blendedv1.IP) (rv error) {
 			delete(ipCopy.Labels, config.MacLabel)
 		}
 		ipCopy.Status.MAC = mac
-		glog.V(4).Infof("MAC label for '%s' changed to '%s'", ip.Name, mac)
+		klog.Infof("MAC label for '%s' changed to '%s'", ip.Name, mac)
 		updateIP = true
 	}
 
 	if ipCopy.Labels[config.PoolLabel] != ip.Spec.PoolName {
 		// Setup or change Label for Pool
 		ipCopy.Labels[config.PoolLabel] = ip.Spec.PoolName
-		glog.V(4).Infof("Pool label for '%s' changed to '%s'", ip.Name, ip.Spec.PoolName)
+		klog.Infof("Pool label for '%s' changed to '%s'", ip.Name, ip.Spec.PoolName)
 		updateIP = true
 	}
 
@@ -213,7 +213,7 @@ func (c *Controller) allocate(ip *blendedv1.IP) (rv error) {
 		} else {
 			delete(ipCopy.Labels, config.IPlabel)
 		}
-		glog.V(4).Infof("IP label for '%s' changed to '%s'", ip.Name, ipCopy.Status.Address)
+		klog.Infof("IP label for '%s' changed to '%s'", ip.Name, ipCopy.Status.Address)
 		updateIP = true
 	}
 
@@ -257,7 +257,7 @@ func (c *Controller) updatePoolStatus(pool *blendedv1.Pool) error {
 	pool.Status.Version = version.GetVersion()
 	pool.Status.LastUpdate = metav1.Now()
 	if _, err := c.blendedset.InwinstackV1().Pools().UpdateStatus(pool); err != nil {
-		glog.V(4).Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
+		klog.Infof("error while update poolStatus '%s': %+v.", pool.Name, err)
 		return err
 	}
 	return nil
@@ -268,7 +268,7 @@ func (c *Controller) updatePool(pool *blendedv1.Pool) (err error) {
 	poolStatus := pool.Status.DeepCopy()
 	// poolCopy := pool.DeepCopy()
 	if newPool, err = c.blendedset.InwinstackV1().Pools().Update(pool); err != nil {
-		glog.V(4).Infof("error while update pool '%s': %+v.", pool.Name, err)
+		klog.Infof("error while update pool '%s': %+v.", pool.Name, err)
 	} else {
 		newPool.Status = *poolStatus
 		err = c.updatePoolStatus(newPool)
@@ -280,7 +280,7 @@ func (c *Controller) updateIPStatus(ip *blendedv1.IP) error {
 	ip.Status.Version = version.GetVersion()
 	ip.Status.LastUpdate = metav1.Now()
 	if _, err := c.blendedset.InwinstackV1().IPs(ip.Namespace).UpdateStatus(ip); err != nil {
-		glog.V(4).Infof("error while update IPStatus '%s': %+v.", ip.Name, err)
+		klog.Infof("error while update IPStatus '%s': %+v.", ip.Name, err)
 		return err
 	}
 	return nil
@@ -290,7 +290,7 @@ func (c *Controller) updateIP(ip *blendedv1.IP) (err error) {
 	var newIP *blendedv1.IP
 	IPStatus := ip.Status.DeepCopy()
 	if newIP, err = c.blendedset.InwinstackV1().IPs(ip.Namespace).Update(ip); err != nil {
-		glog.V(4).Infof("error while update IP '%s': %+v.", ip.Name, err)
+		klog.Infof("error while update IP '%s': %+v.", ip.Name, err)
 	} else {
 		newIP.Status = *IPStatus
 		err = c.updateIPStatus(newIP)
